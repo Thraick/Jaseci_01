@@ -1,0 +1,73 @@
+actions load module jaseci_ai_kit.use_qa
+actions load module jaseci_ai_kit.bi_enc
+actions load module jaseci_ai_kit.tfm_ner
+
+actions load local utils/model/local/flow.py
+actions load local utils/model/local/twilio_bot.py
+
+graph delete active:graph
+jac build main.jac
+graph create -set_active true
+sentinel register -set_active true -mode ir main.jir
+
+walker run init
+
+
+
+walker run talk -ctx "{\"question\": \"hello\"}"
+walker run talk -ctx "{\"question\": \"later\"}"
+walker run talk -ctx "{\"question\": \"I would like to see my account\"}"
+walker run talk -ctx "{\"question\": \"My number is 2315555\"}"
+walker run talk -ctx "{\"question\": \"Where can I pay my bill?\"}"
+
+
+walker run talk -ctx "{\"question\": \"i am calling to find out my account balance\"}"
+walker run talk -ctx "{\"question\": \"My number is 2315555\"}"
+walker run talk -ctx "{\"question\": \"My number is 2316666\"}"
+walker run talk -ctx "{\"question\": \"I would like to check my gtt account\"}"
+walker run talk -ctx "{\"question\": \"I would like to check my landline account\"}"
+walker run talk -ctx "{\"question\": \"How do I borrow money using the lend me service?\"}"
+walker run talk -ctx "{\"question\": \"I would like to check my bill for march\"}"
+walker run talk -ctx "{\"question\": \"I would like to check my invoice for March\"}"
+
+
+
+### bi_enc 
+walker run bi_enc_train -ctx "{\"train_file\": \"utils/data/bi_train.json\"}"
+walker run bi_enc_infer -ctx "{\"labels\": [\"faq_root\", \"greetings\", \"goodbye\", \"payment due\", \"invoice\", \"payment_history\"]}"
+walker run bi_enc_save_model -ctx "{\"model_path\": \"bi_enc_model\"}"
+walker run bi_enc_load_model -ctx "{\"model_path\": \"bi_enc_model\"}"
+walker run bi_enc_delete
+
+
+### tfm_ner // note for some reason tfm_ner_train only work on the server 
+
+walker run tfm_ner_train -ctx "{\"train_file\": \"utils/data/tfm_train.json\"}"
+walker run tfm_ner_infer -ctx "{\"labels\": [\"number\",\"accountname\",\"month\",\"accountNumber\"]}"
+walker run tfm_ner_save_model -ctx "{\"model_path\": \"tfm_ner_model\"}"
+walker run tfm_ner_load_model -ctx "{\"model_path\": \"tfm_ner_model\"}"
+walker run tfm_ner_delete
+
+
+
+graph get -mode dot -o .main.dot 
+dot -Tpng .main.dot -o .main.png
+
+jac build main.jac
+sentinel set -snt active:sentinel -mode ir main.jir
+walker run init
+
+
+Jsserv makemigrations base
+Jsserv migrate
+Jsserv runserver 0.0.0.0:8008
+
+login http://0.0.0.0:8008/
+
+
+pip install jaseci --upgrade
+pip install jaseci-ai-kit --upgrade
+pip install jaseci-serv --upgrade
+
+
+c6f7c542a4e273a0e3f36d3d19001c8b6cec11fe099e6dd738916f903f5387a0

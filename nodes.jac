@@ -1,0 +1,367 @@
+
+node user {
+    has id;
+    has prev_state = null;
+    // has skip_state = null;
+    has dialogue_context ={};
+
+    can start_conv with talk entry {
+        if (here.prev_state == null) {
+            here.prev_state = global.dialogue_root;
+        }
+        visitor.cont_state = here.prev_state;
+        visitor.dialogue_context = here.dialogue_context;
+        // visitor.skip_state = here.skip_state;
+    }
+
+    can update_with_conv with maintainer entry {
+        here.prev_state = visitor.prev_state;
+        // here.skip_state = visitor.skip_state;
+        here.dialogue_context = visitor.dialogue_context;
+    }
+}
+
+node dialogue_state{
+
+    // ai kit 
+    can bi_enc.infer;
+    can tfm_ner.extract_entity;
+    // custom modules
+    can flow.info_json;
+    can flow.select_response;
+    can flow.gen_response;
+    can flow.collect_info;
+    can flow.select_options;
+    can twilio.twilio_bot;
+
+    can classify_intent {
+        if(visitor.respond){
+            intent_labels = -[intent_transition]->.edge.intent;
+            std.out(here.name);
+            std.out(intent_labels);
+            predicted = bi_enc.infer(
+                contexts = [visitor.question],
+                candidates = intent_labels,
+                context_type = "text",
+                candidate_type = "text"
+            );
+            if (predicted[0]['predicted']['score'] > global.conv_score){
+                visitor.predicted_intent = predicted[0]["predicted"]["label"];
+            }
+            // std.out("predicted\n");
+            std.log("INTENT:  ", visitor.predicted_intent);
+            std.out(predicted);
+        }
+    }
+
+    can extract_entities {
+            res = tfm_ner.extract_entity(visitor.question);
+            if(res.type == list || res.type == dict){
+
+                for ent in res {
+                    ent_type = ent["entity_value"];
+                    ent_text = ent["entity_text"];
+                    if ( !(ent_type in visitor.extracted_entities) ){
+                        visitor.extracted_entities[ent_type] = [];
+                    }
+                    
+                    if( ent_text not in visitor.extracted_entities[ent_type] ){
+                        visitor.extracted_entities[ent_type].l::append(ent_text);
+                    }
+                }
+            }
+            std.log("ENTITIES:  ", visitor.extracted_entities);
+    }
+
+    can business_logic {
+        visitor.dialogue_context.dict::update(visitor.extracted_entities);
+
+        for label in global.entity_label {
+            if (label in visitor.extracted_entities) {
+                visitor.dialogue_context[label]=visitor.extracted_entities[label];
+            }
+        }
+    }
+
+    can nlu with talk entry {}
+
+    can process with talk entry {
+
+        required_entities = -[entity_transition]->.edge.entities;
+
+        if(visitor.extracted_entities){
+            for i in required_entities{
+                if (i == visitor.extracted_entities.d::keys){
+                    visitor.next_state = -[entity_transition(entities==visitor.extracted_entities.d::keys)]->[0];
+                }
+            }
+        }
+        elif(visitor.predicted_intent){
+            visitor.next_state = -[intent_transition(intent == visitor.predicted_intent)]->[0];
+        }
+        else{
+            visitor.next_state = null;
+        }
+    }
+
+    can nlg with talk entry {
+        if (!visitor.respond) {
+        // if (!visitor.respond and here.name != "dialogue_root") {
+            report {
+                "question": visitor.question,
+                "name": here.name,
+                "response": visitor.response
+            };
+            // twilio.twilio_bot(visitor.response, visitor.phone_number);
+        }
+    }
+
+    can cleanup with talk entry {
+        intent_labels = -[intent_transition]->.edge.intent;
+        if(intent_labels.length == 0){
+            visitor.prev_state = global.dialogue_root;
+        }
+        else{
+            visitor.prev_state = here.info['jid'];
+        }
+        std.out("visitor.prev_state\n\n");
+        std.out(visitor.prev_state);
+        std.out(here.name);
+
+        spawn *(global.main_root) walker::maintainer( 
+            prev_state = visitor.prev_state,
+            // skip_state = visitor.skip_state,
+            dialogue_context = visitor.dialogue_context
+        );
+    }
+}
+
+node dialogue_root:dialogue_state{
+    has name="dialogue_root";
+
+    can nlu with talk entry{
+        ::classify_intent;
+        ::extract_entities;
+        ::business_logic;
+
+        visitor.response = "this is the dialogue root";
+    }
+
+    // can process with talk entry{
+    //     if
+    // }
+    // can nlg with talk entry{
+    //     if (!visitor.respond) {
+    //     // if (!visitor.respond and here.name != "dialogue_root") {
+    //         report {
+    //             "question": visitor.question,
+    //             "name": here.name,
+    //             "response": visitor.response
+    //         };
+    //         // twilio.twilio_bot(visitor.response, visitor.phone_number);
+    //     }
+    // }
+
+
+}
+
+node soc:dialogue_state{
+    has name = "greetings";
+
+    can nlu with talk entry {
+        state_json = file.load_json(global.state_path);
+        for state in state_json{
+            if (!visitor.respond) {
+                if (here.name == state["name"].str){
+                    arry = flow.select_response(null, state['responses'], null);
+                    // std.out(arry);
+                    visitor.response = arry[1];
+                }
+            }
+        }
+    }
+
+    can process with talk entry{
+        visitor.next_state = -[intent_transition(intent==global.dialogue_root)]->;
+    }
+
+}
+
+node eoc:dialogue_state{
+    has name = "goodbye";
+
+    can nlu with talk entry {
+        state_json = file.load_json(global.state_path);
+        for state in state_json{
+            if (!visitor.respond) {
+                if (here.name == state["name"].str){
+                    arry = flow.select_response(null, state['responses'], null);
+                    // std.out(arry);
+                    visitor.response = arry[1];
+                }
+            }
+        }
+    }
+
+    can process with talk entry{
+        visitor.next_state = -[intent_transition(intent==global.dialogue_root)]->;
+    }
+}
+
+node tes:dialogue_state{
+    has name = "entity_test";
+
+    can nlu with talk entry {
+        // state_json = file.load_json(global.state_path);
+        // for state in state_json{
+        //     if (!visitor.respond) {
+        //         if (here.name == state["name"].str){
+        //             arry = flow.select_response(null, state['responses'], null);
+        //             std.out(arry);
+        //             visitor.response = arry[1];
+        //         }
+        //     }
+        // }
+        visitor.response = "tes entity work!";
+    }
+
+    can process with talk entry{
+        visitor.next_state = -[intent_transition(intent==global.dialogue_root)]->;
+    }
+}
+
+node number:dialogue_state{
+    has name = "number";
+
+    can nlu with talk entry {
+        std.out(" in number \n\n");
+        ::classify_intent;
+        ::extract_entities;
+        ::business_logic;
+
+        state_json = file.load_json(global.state_path);
+        for state in state_json{
+            if (!visitor.respond) {
+                if (here.name == state["name"].str){
+                    // arry = flow.select_response(state["extracted_item"], state['responses'], visitor.dialogue_context);
+                    // std.out(arry);
+                    // visitor.response = arry[1];
+                    // visitor.next_state = here;
+                // }
+                // elif(arry[0] == ""){
+                //     my_dict = flow.info_json(state['info_file'], visitor.dialogue_context, state['info_items'] ); # setup data for response
+                //     visitor.dialogue_context = my_dict;
+                //     ans = flow.gen_response(arry[1], my_dict, null);
+                //     visitor.response = ans;
+                // }
+                    arry = flow.select_response(state["extracted_item"], state["responses"], visitor.dialogue_context); # select a response
+                    if(arry[0] != ""){
+                        visitor.response = arry[1];
+                        visitor.next_state = here;
+                    }
+                    elif(arry[0] == ""){
+                        my_dict = flow.info_json(state['info_file'], visitor.dialogue_context, state['info_items'] ); # setup data for response
+                        visitor.dialogue_context = my_dict;
+                        ans = flow.gen_response(arry[1], my_dict, null);
+                        visitor.response = ans;
+                    }
+                }
+            }
+        }
+    }
+}
+
+node account:dialogue_state{
+    has name = "account";
+    can nlu with talk entry{
+        ::classify_intent;
+        ::extract_entities;
+        ::business_logic;
+        
+        state_json = file.load_json(global.state_path);
+        for state in state_json{
+            if (!visitor.respond) {
+                if (here.name == state["name"].str){
+                    if (state["info_items"][0] not in visitor.dialogue_context){
+                        // visitor.next_state = -[intent_transition(intent=="number")]->[0];
+                        visitor.next_state = -[redirect_transition(name=="number")]->[0];
+                        visitor.respond = true;
+                        visitor.predicted_intent = '';
+                        std.out('in if info account');
+
+                    }
+                    else{
+                        arry = flow.select_response(null, state['responses'], null);
+                        visitor.response = arry[1];
+
+                        my_dict = flow.info_json(state['info_file'], visitor.dialogue_context, state['info_items'] ); # setup data for response
+                        visitor.dialogue_context = my_dict;
+                        std.out(visitor.dialogue_context);
+                        ans = flow.gen_response(arry[1], my_dict['info_json'][0], null);
+                        visitor.response = ans;
+                    }
+                }
+            }
+        }
+    }
+
+    can process with talk entry{
+        // if(visitor.next_state){
+        //     std.out('go to number');
+        // }
+        if(!visitor.next_state){
+            std.out('in if not account');
+            // visitor.next_state = -[intent_transition(intent==global.dialogue_root)]->[0];
+            // visitor.next_state = -[intent_transition(intent=="dialogue_root")]->[0];
+            std.out(global.dialogue_root);
+            std.out(visitor.next_state);
+            // visitor.next_state = global.dialogue_root;
+
+        }
+    }
+}
+
+
+
+node faq_root:dialogue_state{
+    has name = 'faq answer';
+    can use.qa_classify;
+
+    can nlu with talk entry{
+        answers = -->.answer;
+        best_answer = use.qa_classify(
+            text = visitor.question,
+            classes = answers
+        );
+        score = global.faq_score;
+        nn = best_answer['match_idx'];
+        std.log( "FAQ: " + " MATCH: ",best_answer['match'],"   SCORE: " ,best_answer['scores'][nn]);
+
+        if (best_answer['scores'][nn] > score){
+            visitor.response = best_answer['match'];
+        }
+    }
+
+    can process with talk entry{
+        if(visitor.prev_state){
+            std.out('fr process if 1');
+            visitor.next_state = *(visitor.prev_state);
+            std.out("check with previous state visitor.next_state\n");
+            std.out(visitor.next_state);
+            // visitor.next_state= -[intent_transition(intent==visitor.prev_state)]->;
+        }
+        else{ 
+            std.out('fr process if 2');
+            visitor.next_state = global.dialogue_root;
+        }
+    }
+    can cleanup with talk entry{
+
+    }
+
+}
+
+node faq_state{
+    has name = 'faq state';
+    has answer;
+}

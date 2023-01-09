@@ -5,16 +5,19 @@ import {*} with './nodes.jac';
 graph dialogue_system {
     has anchor dialogue_root;
     spawn {
+        bienc = file.load_json(global.bi_enc_path);
+        
+
         dialogue_root = spawn node::dialogue_root;
         global.dialogue_root = dialogue_root.info['jid'];
 
-        soc = spawn node::soc;
+        soc = spawn node::soc(imprint = bienc['greetings']);
         dialogue_root -[intent_transition(intent="greetings")]->soc;
 
-        eoc = spawn node::eoc;
+        eoc = spawn node::eoc(imprint = bienc['goodbye']);
         dialogue_root -[intent_transition(intent="goodbye")]->eoc;
 
-        faq_root = spawn node::faq_root;
+        faq_root = spawn node::faq_root(imprint = bienc['faq_root']);
         dialogue_root -[intent_transition(intent="faq_root")]->faq_root;
 
 
@@ -28,7 +31,7 @@ graph dialogue_system {
         // tes1 = spawn node::tes;
         // dialogue_root -[entity_transition(entities=["number"])]->tes1;
 
-        account = spawn node::account;
+        account = spawn node::account(imprint = bienc['account']);
         number = spawn node::number;
 
         dialogue_root -[intent_transition(intent="account")]->account;

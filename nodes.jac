@@ -22,10 +22,14 @@ node user {
 }
 
 node dialogue_state{
+    // hold threshold list
+    has imprint;
 
     // ai kit 
     can bi_enc.infer;
     can tfm_ner.extract_entity;
+    can use.text_classify;
+
     // custom modules
     can flow.info_json;
     can flow.select_response;
@@ -34,11 +38,37 @@ node dialogue_state{
     can flow.select_options;
     can twilio.twilio_bot;
 
+    can check_threshold with talk entry{
+        if(visitor.respond){
+
+            imprints = -->.imprint;
+            max_score = global.conv_score;
+
+            for imprint in imprints {
+                if (imprint.type == list ){
+
+                    best_answer = use.text_classify(
+                        text = visitor.question,
+                        classes = imprint.list
+                    );
+                    nn = best_answer['match_idx'];
+                    if (best_answer['scores'][nn] > max_score){
+                        max_score = best_answer['scores'][nn];
+                    }
+                }
+            }
+            if (max_score > global.conv_score){
+                visitor.threshold = true;
+            }
+            std.log("THRESHOLD: ", global.conv_score,"   SCORE: " , max_score);
+        }
+    }
+
     can classify_intent {
         if(visitor.respond){
             intent_labels = -[intent_transition]->.edge.intent;
-            std.out(here.name);
-            std.out(intent_labels);
+            // std.out(here.name);
+            // std.out(intent_labels);
             predicted = bi_enc.infer(
                 contexts = [visitor.question],
                 candidates = intent_labels,
@@ -50,7 +80,6 @@ node dialogue_state{
             }
             // std.out("predicted\n");
             std.log("INTENT:  ", visitor.predicted_intent);
-            std.out(predicted);
         }
     }
 
@@ -96,7 +125,7 @@ node dialogue_state{
                 }
             }
         }
-        elif(visitor.predicted_intent){
+        elif(visitor.predicted_intent and visitor.threshold){
             visitor.next_state = -[intent_transition(intent == visitor.predicted_intent)]->[0];
         }
         else{
@@ -124,9 +153,9 @@ node dialogue_state{
         else{
             visitor.prev_state = here.info['jid'];
         }
-        std.out("visitor.prev_state\n\n");
-        std.out(visitor.prev_state);
-        std.out(here.name);
+        // std.out("visitor.prev_state\n\n");
+        // std.out(visitor.prev_state);
+        // std.out(here.name);
 
         spawn *(global.main_root) walker::maintainer( 
             prev_state = visitor.prev_state,
@@ -333,25 +362,25 @@ node faq_root:dialogue_state{
             text = visitor.question,
             classes = answers
         );
-        score = global.faq_score;
+        max_score = global.faq_score;
         nn = best_answer['match_idx'];
         std.log( "FAQ: " + " MATCH: ",best_answer['match'],"   SCORE: " ,best_answer['scores'][nn]);
 
-        if (best_answer['scores'][nn] > score){
+        if (best_answer['scores'][nn] > max_score){
             visitor.response = best_answer['match'];
         }
     }
 
     can process with talk entry{
         if(visitor.prev_state){
-            std.out('fr process if 1');
+            // std.out('fr process if 1');
             visitor.next_state = *(visitor.prev_state);
-            std.out("check with previous state visitor.next_state\n");
-            std.out(visitor.next_state);
+            // std.out("check with previous state visitor.next_state\n");
+            // std.out(visitor.next_state);
             // visitor.next_state= -[intent_transition(intent==visitor.prev_state)]->;
         }
         else{ 
-            std.out('fr process if 2');
+            // std.out('fr process if 2');
             visitor.next_state = global.dialogue_root;
         }
     }

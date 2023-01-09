@@ -35,7 +35,8 @@ walker talk {
     has prev_state;
     has cont_state;
     has respond = true;
-    has media ="";
+    // has media = "";
+    has threshold = false;
 
     root {
         take --> node::user;
@@ -49,7 +50,7 @@ walker talk {
             take next_state else {
                 report {
                     "name": here.name,
-                    "response": "Sorry I can't handle that just yet cai."
+                    "response": "Sorry I can't handle that just yet."
                 };
             }
             respond = false;

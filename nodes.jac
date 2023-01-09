@@ -38,50 +38,88 @@ node dialogue_state{
     can flow.select_options;
     can twilio.twilio_bot;
 
-    can check_threshold with talk entry{
+    can classify_intent {
         if(visitor.respond){
 
             imprints = -->.imprint;
             max_score = global.conv_score;
+            intent = "";
 
             for imprint in imprints {
-                if (imprint.type == list ){
+                if (imprint.type == dict ){
 
                     best_answer = use.text_classify(
                         text = visitor.question,
-                        classes = imprint.list
+                        classes = imprint.list_imprint.list
                     );
+                    std.out(best_answer);
                     nn = best_answer['match_idx'];
                     if (best_answer['scores'][nn] > max_score){
                         max_score = best_answer['scores'][nn];
+                        intent = imprint.name;
                     }
                 }
             }
             if (max_score > global.conv_score){
                 visitor.threshold = true;
+                visitor.predicted_intent = intent;
             }
             std.log("THRESHOLD: ", global.conv_score,"   SCORE: " , max_score);
+            // std.out("intent");
+            // std.out(intent);
         }
     }
 
-    can classify_intent {
-        if(visitor.respond){
-            intent_labels = -[intent_transition]->.edge.intent;
-            // std.out(here.name);
-            // std.out(intent_labels);
-            predicted = bi_enc.infer(
-                contexts = [visitor.question],
-                candidates = intent_labels,
-                context_type = "text",
-                candidate_type = "text"
-            );
-            if (predicted[0]['predicted']['score'] > global.conv_score){
-                visitor.predicted_intent = predicted[0]["predicted"]["label"];
-            }
-            // std.out("predicted\n");
-            std.log("INTENT:  ", visitor.predicted_intent);
-        }
-    }
+    // can check_threshold with talk entry{
+    //     if(visitor.respond){
+
+    //         imprints = -->.imprint;
+    //         max_score = global.conv_score;
+    //         intent = "";
+
+    //         for imprint in imprints {
+    //             if (imprint.type == dict ){
+
+    //                 best_answer = use.text_classify(
+    //                     text = visitor.question,
+    //                     classes = imprint.list_imprint.list
+    //                 );
+    //                 std.out(best_answer);
+    //                 nn = best_answer['match_idx'];
+    //                 if (best_answer['scores'][nn] > max_score){
+    //                     max_score = best_answer['scores'][nn];
+    //                     intent = imprint.name;
+    //                 }
+    //             }
+    //         }
+    //         if (max_score > global.conv_score){
+    //             visitor.threshold = true;
+    //             visitor.predicted_intent = intent
+    //         }
+    //         std.log("THRESHOLD: ", global.conv_score,"   SCORE: " , max_score);
+    //         // std.out("intent");
+    //         // std.out(intent);
+    //     }
+    // }
+
+    // can classify_intent {
+    //     if(visitor.respond){
+    //         intent_labels = -[intent_transition]->.edge.intent;
+    //         // std.out(here.name);
+    //         // std.out(intent_labels);
+    //         predicted = bi_enc.infer(
+    //             contexts = [visitor.question],
+    //             candidates = intent_labels,
+    //             context_type = "text",
+    //             candidate_type = "text"
+    //         );
+    //         if (predicted[0]['predicted']['score'] > global.conv_score){
+    //             // visitor.predicted_intent = predicted[0]["predicted"]["label"];
+    //         }
+    //         // std.out("predicted\n");
+    //         std.log("INTENT:  ", visitor.predicted_intent);
+    //     }
+    // }
 
     can extract_entities {
             res = tfm_ner.extract_entity(visitor.question);
